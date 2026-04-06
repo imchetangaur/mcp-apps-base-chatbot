@@ -1,0 +1,17 @@
+[project]
+name = "mcp-apps-base-chatbot"
+version = "0.1.0"
+description = "MCP Apps Base Chatbot — backend API with MCP server integration and LLM agent loop"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.0.0",
+    "google-genai>=1.0.0",
+    "mcp>=1.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"

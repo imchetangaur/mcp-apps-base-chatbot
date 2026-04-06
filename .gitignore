@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build output
+frontend/dist/
+*.js.map
+
+# Logs
+*.log
+npm-debug.log*
+
+# Python
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
