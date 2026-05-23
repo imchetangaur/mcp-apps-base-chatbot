@@ -1,181 +1,131 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
-import { Maximize2, Minimize2 } from 'lucide-react';
+import { useMemo } from 'react';
+import { AppRenderer } from '@mcp-ui/client';
+import type { McpUiHostContext } from '@modelcontextprotocol/ext-apps/app-bridge';
 import { RemoteDomRenderer, type RemoteDomNode } from './RemoteDomRenderer';
 
+export type McpUiTheme = 'light' | 'dark';
+
 interface Props {
-  /** Raw content from MCP server (HTML string or JSON component tree) */
-  content: string;
-  /** MIME type: text/html or application/vnd.mcp-ui.remote-dom */
-  mimeType?: string;
+  resource: {
+    uri: string;
+    mimeType?: string;
+    text?: string;
+    blob?: string;
+  };
   title?: string;
-  /** Called when user interacts with content (clicks a card, etc.) */
+  theme?: McpUiTheme;
   onAction?: (text: string) => void;
 }
 
 const REMOTE_DOM_MIME = 'application/vnd.mcp-ui.remote-dom';
 
-/**
- * MCP App Renderer — routes between rendering modes based on mimeType:
- *
- * 1. text/html → sandboxed iframe (legacy)
- * 2. application/vnd.mcp-ui.remote-dom → native React components (Remote DOM)
- *
- * Remote DOM provides:
- * - Native theming (inherits host dark theme)
- * - Direct click handlers (no postMessage chain)
- * - No iframe overhead
- * - Seamless visual integration
- */
-export function McpAppRenderer({ content, mimeType, title, onAction }: Props) {
-  const isRemoteDom = mimeType === REMOTE_DOM_MIME;
+const sandboxUrl = new URL('/api/mcp-proxy/mcp-apps-sandbox', window.location.origin);
 
-  if (isRemoteDom) {
-    return (
-      <RemoteDomContent
-        content={content}
-        title={title}
-        onAction={onAction}
-      />
-    );
-  }
+const DARK_STYLES = {
+  '--color-background-primary': '#151515',
+  '--color-background-secondary': '#1f1f1f',
+  '--color-background-tertiary': '#292929',
+  '--color-text-primary': '#ffffff',
+  '--color-text-secondary': '#c7c7c7',
+  '--color-text-tertiary': '#707070',
+  '--color-border-primary': '#383838',
+  '--color-border-secondary': '#2a2a2a',
+  '--bg-primary': '#151515',
+  '--bg-secondary': '#1f1f1f',
+  '--bg-surface': '#292929',
+  '--text-primary': '#ffffff',
+  '--text-secondary': '#c7c7c7',
+  '--text-muted': '#707070',
+  '--border': '#383838',
+  '--border-subtle': '#2a2a2a',
+  '--accent': '#92c5f9',
+  '--accent-hover': '#b9dafc',
+  '--success': '#87bb62',
+  '--error': '#f0561d',
+};
 
-  // Fallback: iframe-based HTML rendering
-  return (
-    <IframeContent
-      html={content}
-      title={title}
-      onAction={onAction}
-    />
-  );
-}
+const LIGHT_STYLES = {
+  '--color-background-primary': '#ffffff',
+  '--color-background-secondary': '#f5f5f5',
+  '--color-background-tertiary': '#e8e8e8',
+  '--color-text-primary': '#1a1a1a',
+  '--color-text-secondary': '#4a4a4a',
+  '--color-text-tertiary': '#8a8a8a',
+  '--color-border-primary': '#d4d4d4',
+  '--color-border-secondary': '#e5e5e5',
+  '--bg-primary': '#ffffff',
+  '--bg-secondary': '#f5f5f5',
+  '--bg-surface': '#e8e8e8',
+  '--text-primary': '#1a1a1a',
+  '--text-secondary': '#4a4a4a',
+  '--text-muted': '#8a8a8a',
+  '--border': '#d4d4d4',
+  '--border-subtle': '#e5e5e5',
+  '--accent': '#2563eb',
+  '--accent-hover': '#1d4ed8',
+  '--success': '#16a34a',
+  '--error': '#dc2626',
+};
 
-/** Remote DOM: renders JSON component tree as native React components */
-function RemoteDomContent({
-  content,
-  title,
-  onAction,
-}: {
-  content: string;
-  title?: string;
-  onAction?: (text: string) => void;
-}) {
-  const tree = useMemo<RemoteDomNode | null>(() => {
+export function McpAppRenderer({ resource, title, theme = 'dark', onAction }: Props) {
+  const mimeType = resource.mimeType || 'text/html';
+
+  const remoteDomTree = useMemo<RemoteDomNode | null>(() => {
+    if (mimeType !== REMOTE_DOM_MIME) return null;
     try {
-      return JSON.parse(content);
+      return JSON.parse(resource.text || '{}');
     } catch {
       return null;
     }
-  }, [content]);
+  }, [mimeType, resource.text]);
 
-  if (!tree) {
+  const hostContext = useMemo<McpUiHostContext>(() => ({
+    theme: theme,
+    styles: {
+      variables: theme === 'light' ? LIGHT_STYLES : DARK_STYLES,
+    },
+  } as unknown as McpUiHostContext), [theme]);
+
+  if (mimeType === REMOTE_DOM_MIME) {
+    if (!remoteDomTree) {
+      return (
+        <div className="mcp-app-renderer">
+          <div style={{ padding: 16, color: 'var(--error)' }}>
+            Failed to parse Remote DOM content
+          </div>
+        </div>
+      );
+    }
     return (
-      <div className="mcp-app-renderer">
-        <div className="mcp-app-toolbar">
-          <span className="mcp-app-title">{title || 'MCP App'}</span>
-        </div>
-        <div style={{ padding: 16, color: 'var(--error)' }}>
-          Failed to parse Remote DOM content
-        </div>
+      <div className="mcp-app-renderer mcp-remote-dom">
+        <RemoteDomRenderer tree={remoteDomTree} onAction={onAction} />
       </div>
     );
   }
 
   return (
-    <div className="mcp-app-renderer mcp-remote-dom">
-      <RemoteDomRenderer tree={tree} onAction={onAction} />
-    </div>
-  );
-}
-
-/** Iframe: renders raw HTML in a sandboxed iframe via proxy */
-function IframeContent({
-  html,
-  title,
-  onAction,
-}: {
-  html: string;
-  title?: string;
-  onAction?: (text: string) => void;
-}) {
-  const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [height, setHeight] = useState(300);
-  const [displayMode, setDisplayMode] = useState<'inline' | 'fullscreen'>('inline');
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    function handleMessage(event: MessageEvent) {
-      const data = event.data;
-      if (!data || typeof data !== 'object') return;
-
-      if (data.type === 'sandbox-ready') {
-        iframeRef.current?.contentWindow?.postMessage(
-          { type: 'load-html', html },
-          '*'
-        );
-        setLoaded(true);
-      }
-
-      if (data.type === 'resize' && typeof data.height === 'number') {
-        setHeight(Math.min(Math.max(data.height, 100), 800));
-      }
-
-      if (data.type === 'mcp-action' && onAction) {
-        if (typeof data.text === 'string' && data.text.trim()) {
-          onAction(data.text);
-        }
-      }
-    }
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [html, onAction]);
-
-  const toggleFullscreen = useCallback(() => {
-    setDisplayMode((prev) => (prev === 'inline' ? 'fullscreen' : 'inline'));
-  }, []);
-
-  useEffect(() => {
-    if (displayMode !== 'fullscreen') return;
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') setDisplayMode('inline');
-    }
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [displayMode]);
-
-  const isFullscreen = displayMode === 'fullscreen';
-
-  return (
-    <div className={`mcp-app-renderer ${isFullscreen ? 'mcp-fullscreen' : ''}`}>
-      <div className="mcp-app-toolbar">
-        <span className="mcp-app-title">{title || 'MCP App'}</span>
-        <div className="mcp-app-actions">
-          <button
-            className="btn-icon"
-            onClick={toggleFullscreen}
-            title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-          >
-            {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-          </button>
-        </div>
-      </div>
-      <div
-        className="mcp-app-iframe-container"
-        style={{ height: isFullscreen ? '100%' : `${height}px` }}
-      >
-        {!loaded && <div className="mcp-app-loading">Loading MCP app...</div>}
-        <iframe
-          ref={iframeRef}
-          src="/api/mcp-proxy/sandbox"
-          sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
-          style={{
-            width: '100%',
-            height: '100%',
-            border: 'none',
-            opacity: loaded ? 1 : 0,
-          }}
-        />
-      </div>
+    <div className="mcp-app-renderer">
+      <AppRenderer
+        toolName={title || 'ui'}
+        sandbox={{ url: sandboxUrl }}
+        html={resource.text || ''}
+        hostContext={hostContext}
+        onMessage={async (params) => {
+          const content = (params as Record<string, unknown>).content;
+          if (Array.isArray(content)) {
+            const textBlock = content.find(
+              (b: Record<string, unknown>) => b.type === 'text'
+            );
+            if (textBlock && typeof textBlock.text === 'string' && onAction) {
+              onAction(textBlock.text);
+            }
+          }
+          return {};
+        }}
+        onError={(error) => {
+          console.error('[McpAppRenderer]', error);
+        }}
+      />
     </div>
   );
 }

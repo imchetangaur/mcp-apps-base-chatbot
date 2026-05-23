@@ -7,10 +7,13 @@ Follows the Goose pattern:
 
 from __future__ import annotations
 
+import json
 import uuid
 from typing import AsyncIterator
 
+from app.config import SYSTEM_PROMPT, RENDER_UI_TOOL, MCP_APP_MIME
 from app.models.events import SSEEvent, MessageEvent, FinishEvent, ErrorEvent
+from app.models.extensions import ToolInfo
 from app.models.messages import (
     Message,
     Role,
@@ -111,6 +114,29 @@ def _make_result_blocks(raw_blocks: list[dict]) -> list[ToolResultBlock]:
     return result
 
 
+def _execute_render_ui(arguments: dict) -> list[dict]:
+    """Handle the local render_ui tool — wraps HTML as an MCP Apps resource."""
+    html = arguments.get("html", "")
+    title = arguments.get("title", "UI")
+
+    if not html.strip():
+        return [{"type": "text", "text": "Error: html parameter is empty."}]
+
+    resource_id = uuid.uuid4().hex[:8]
+    return [
+        {"type": "text", "text": f"Rendered UI: {title}"},
+        {
+            "type": "resource",
+            "mimeType": MCP_APP_MIME,
+            "resource": {
+                "uri": f"ui://render-ui/{resource_id}",
+                "mimeType": MCP_APP_MIME,
+                "text": html,
+            },
+        },
+    ]
+
+
 class Agent:
     """Orchestrates the agentic reply loop."""
 
@@ -128,8 +154,11 @@ class Agent:
         session.messages.append(user_message)
         session_manager.touch(session_id)
 
-        # Get available tools from MCP
+        # Get available tools from MCP + local render_ui
         tools = await mcp_manager.list_tools(session_id)
+        # Inject render_ui virtual tool
+        render_ui_tool = ToolInfo(**RENDER_UI_TOOL)
+        tools = list(tools) + [render_ui_tool]
         gemini_tools = _tools_to_gemini(tools) if tools else None
 
         # Agent loop: call LLM, handle tool use, repeat
@@ -146,6 +175,7 @@ class Agent:
             async for event in llm_service.chat_completion(
                 gemini_messages,
                 tools=gemini_tools,
+                system=SYSTEM_PROMPT,
             ):
                 if event["type"] == "text_delta":
                     text_parts.append(event["text"])
@@ -201,9 +231,12 @@ class Agent:
             resource_content_blocks = []
             for tu in tool_uses:
                 try:
-                    raw_blocks = await mcp_manager.call_tool(
-                        session_id, tu["name"], tu["input"]
-                    )
+                    if tu["name"] == "render_ui":
+                        raw_blocks = _execute_render_ui(tu["input"])
+                    else:
+                        raw_blocks = await mcp_manager.call_tool(
+                            session_id, tu["name"], tu["input"]
+                        )
                     result_blocks = _make_result_blocks(raw_blocks)
                     # Separate resource blocks from text/image blocks
                     # Resources go to the AI response; only text stays in tool result
@@ -220,6 +253,11 @@ class Agent:
                             )
                         else:
                             text_blocks.append(rb)
+                    if resource_content_blocks:
+                        text_blocks.append(ToolResultBlock(
+                            type="text",
+                            text="[A rich visual UI has already been rendered for the user. Do NOT call render_ui to re-display this data.]",
+                        ))
                     tool_response_content.append(
                         ToolResponseContent(
                             id=tu["id"],

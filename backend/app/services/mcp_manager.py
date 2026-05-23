@@ -68,6 +68,16 @@ class MCPManager:
 
         return conn.tools
 
+    @staticmethod
+    def _unwrap_error(e: BaseException) -> str:
+        """Unwrap ExceptionGroup/BaseExceptionGroup to get the root cause message."""
+        if isinstance(e, BaseExceptionGroup):
+            causes = []
+            for exc in e.exceptions:
+                causes.append(MCPManager._unwrap_error(exc))
+            return "; ".join(causes)
+        return str(e)
+
     async def _run_connection(self, session_id: str, conn: MCPConnection):
         """Run an MCP connection in a background task, keeping context managers alive."""
         try:
@@ -75,9 +85,10 @@ class MCPManager:
                 await self._run_stdio(conn)
             elif isinstance(conn.config, HttpExtensionConfig):
                 await self._run_http(conn)
-        except Exception as e:
-            logger.error(f"MCP connection error for '{conn.name}': {e}")
-            conn._error = str(e)
+        except BaseException as e:
+            msg = self._unwrap_error(e)
+            logger.error(f"MCP connection error for '{conn.name}': {msg}")
+            conn._error = msg
             conn._ready.set()
 
     async def _run_stdio(self, conn: MCPConnection):

@@ -38,20 +38,20 @@ for _env_name in (".env", ".env.example"):
 API_KEY = os.environ.get("WEATHER_API_KEY", "").strip()
 BASE_URL = "https://api.weatherapi.com/v1"
 
-# ── Theme colors (shadowbot-ui grey & black) ─────────────────────
-BG_PRIMARY = "#151515"       # page background — near black
-BG_SURFACE = "#1f1f1f"       # card/surface background — dark grey
-BG_TERTIARY = "#383838"      # borders, subtle surfaces — medium grey
-TEXT_PRIMARY = "#ffffff"      # headings, values — white
-TEXT_SECONDARY = "#c7c7c7"   # secondary text — light grey
-TEXT_MUTED = "#707070"        # labels, hints — muted grey
-ACCENT = "#92c5f9"           # links, highlights — soft blue
-ACCENT_HOVER = "#b9dafc"     # hover states — lighter blue
-SUCCESS = "#87bb62"          # success indicators — green
-WARNING = "#ffcc17"          # sunny/clear weather — yellow
-CAUTION = "#f5921b"          # thunder/alerts — orange
-DANGER = "#f0561d"           # errors — red-orange
-BRAND = "#ee0000"            # Red Hat brand — red
+# ── Theme colors (use CSS variables for dynamic theming) ─────────
+BG_PRIMARY = "var(--bg-primary, #151515)"
+BG_SURFACE = "var(--bg-secondary, #1f1f1f)"
+BG_TERTIARY = "var(--border, #383838)"
+TEXT_PRIMARY = "var(--text-primary, #ffffff)"
+TEXT_SECONDARY = "var(--text-secondary, #c7c7c7)"
+TEXT_MUTED = "var(--text-muted, #707070)"
+ACCENT = "var(--accent, #92c5f9)"
+ACCENT_HOVER = "var(--accent-hover, #b9dafc)"
+SUCCESS = "var(--success, #87bb62)"
+WARNING = "#ffcc17"          # sunny/clear weather — yellow (not themed)
+CAUTION = "#f5921b"          # thunder/alerts — orange (not themed)
+DANGER = "var(--error, #f0561d)"
+BRAND = "#ee0000"            # Red Hat brand — red (not themed)
 
 
 _ssl_ctx = ssl.create_default_context()

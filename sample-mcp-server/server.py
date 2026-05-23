@@ -207,7 +207,7 @@ def _build_chart_tree(data: dict, title: str) -> str:
                         "style": {
                             "flex": "1",
                             "background": "transparent",
-                            "border": "1px solid #383838",
+                            "border": "1px solid var(--border)",
                             "borderRadius": "6px",
                             "height": "28px",
                             "overflow": "hidden",

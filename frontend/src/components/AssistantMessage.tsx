@@ -6,26 +6,25 @@ import {
   ResourceContent,
 } from '../types/message';
 import { ToolCallDisplay } from './ToolCallDisplay';
-import { McpAppRenderer } from './McpAppRenderer';
+import { McpAppRenderer, type McpUiTheme } from './McpAppRenderer';
 import ReactMarkdown from 'react-markdown';
 
 interface Props {
   message: Message;
   toolResponseMap?: Map<string, ToolResponseContent>;
   onAction?: (text: string) => void;
-  /** Whether to show the avatar — only true for the first message in a consecutive AI group */
   showAvatar?: boolean;
-  /** Set of "msgId::uri" keys whose rich content should be hidden (superseded by a later update) */
   suppressedResources?: Set<string>;
+  theme?: McpUiTheme;
 }
 
 const REMOTE_DOM_MIME = 'application/vnd.mcp-ui.remote-dom';
+const MCP_APP_MIME = 'text/html;profile=mcp-app';
 
-/** Check if a result block contains renderable UI content (HTML or Remote DOM) */
 function isRichContent(block: ToolResultBlock): boolean {
   if (block.type === 'resource' && block.resource) {
     const mime = block.mimeType || block.resource.mimeType || '';
-    if (mime.includes('html') || mime === REMOTE_DOM_MIME) return true;
+    if (mime.includes('html') || mime === REMOTE_DOM_MIME || mime === MCP_APP_MIME) return true;
     const text = block.resource.text || '';
     if (text.trim().startsWith('<') && (text.includes('</') || text.includes('/>'))) return true;
   }
@@ -42,23 +41,29 @@ function isRichContent(block: ToolResultBlock): boolean {
   return false;
 }
 
-/** Extract content string and mimeType from a result block */
-function extractContent(block: ToolResultBlock): { content: string; mimeType: string } {
+interface ExtractedResource {
+  uri: string;
+  mimeType: string;
+  text?: string;
+  blob?: string;
+}
+
+function extractResource(block: ToolResultBlock, toolName: string, index: number): ExtractedResource {
   const mime = block.mimeType || block.resource?.mimeType || 'text/html';
-  if (block.type === 'resource' && block.resource?.text) {
-    return { content: block.resource.text, mimeType: mime };
+  const uri = block.resource?.uri || `ui://${toolName}/result-${index}`;
+  if (block.type === 'resource' && block.resource) {
+    return { uri, mimeType: mime, text: block.resource.text, blob: block.resource.blob };
   }
-  return { content: block.text || '', mimeType: mime };
+  return { uri, mimeType: mime, text: block.text || '' };
 }
 
 function isImageContent(block: ToolResultBlock): boolean {
   return block.type === 'image' && !!block.data;
 }
 
-/** Check if a ResourceContent block contains renderable UI */
 function isRichResource(res: ResourceContent): boolean {
   const mime = res.mimeType || '';
-  if (mime.includes('html') || mime === REMOTE_DOM_MIME) return true;
+  if (mime.includes('html') || mime === REMOTE_DOM_MIME || mime === MCP_APP_MIME) return true;
   if (res.text) {
     const t = res.text.trim();
     if (
@@ -77,6 +82,7 @@ export function AssistantMessage({
   onAction,
   showAvatar = true,
   suppressedResources,
+  theme,
 }: Props) {
   const toolRequests: ToolRequestContent[] = [];
   const textParts: string[] = [];
@@ -96,8 +102,7 @@ export function AssistantMessage({
     }
   }
 
-  // Collect rich content from tool responses (skip suppressed URIs)
-  const toolRichItems: { content: string; mimeType: string; key: string; toolName: string }[] = [];
+  const toolRichItems: { resource: ExtractedResource; key: string; toolName: string }[] = [];
   const toolImageItems: { src: string; key: string }[] = [];
   for (const req of toolRequests) {
     const resp = toolResponseMap?.get(req.id);
@@ -105,17 +110,14 @@ export function AssistantMessage({
     for (let i = 0; i < resp.tool_result.content.length; i++) {
       const block = resp.tool_result.content[i];
 
-      // Check if this resource is suppressed (superseded by a later update)
       const uri = block.resource?.uri;
       if (uri && suppressedResources?.has(`${message.id}::${uri}`)) {
         continue;
       }
 
       if (isRichContent(block)) {
-        const { content, mimeType } = extractContent(block);
         toolRichItems.push({
-          content,
-          mimeType,
+          resource: extractResource(block, req.tool_call.name, i),
           toolName: req.tool_call.name,
           key: `${req.id}-rich-${i}`,
         });
@@ -128,7 +130,6 @@ export function AssistantMessage({
     }
   }
 
-  // Check if ALL rich content in this message is suppressed (hide the entire message if empty)
   const hasVisibleContent =
     textParts.length > 0 ||
     toolRequests.length > 0 ||
@@ -150,7 +151,6 @@ export function AssistantMessage({
         <div className="message-avatar-spacer" />
       )}
       <div className="message-body">
-        {/* Tool calls — collapsed accordion */}
         {toolRequests.map((req) => (
           <ToolCallDisplay
             key={req.id}
@@ -159,42 +159,43 @@ export function AssistantMessage({
           />
         ))}
 
-        {/* AI text response */}
         {textParts.length > 0 && (
           <div className="markdown-content">
             <ReactMarkdown>{textParts.join('\n')}</ReactMarkdown>
           </div>
         )}
 
-        {/* Resource content directly in the AI message */}
         {resourceBlocks.map((res, i) => {
           const uri = res.uri;
           if (uri && suppressedResources?.has(`${message.id}::${uri}`)) return null;
           return isRichResource(res) && res.text ? (
             <div key={`res-${i}`} className="mcp-inline-content">
               <McpAppRenderer
-                content={res.text}
-                mimeType={res.mimeType || 'text/html'}
+                resource={{
+                  uri: res.uri,
+                  mimeType: res.mimeType,
+                  text: res.text,
+                  blob: res.blob,
+                }}
                 title={res.uri}
+                theme={theme}
                 onAction={onAction}
               />
             </div>
           ) : null;
         })}
 
-        {/* Rich content from tool responses */}
         {toolRichItems.map((item) => (
           <div key={item.key} className="mcp-inline-content">
             <McpAppRenderer
-              content={item.content}
-              mimeType={item.mimeType}
+              resource={item.resource}
               title={item.toolName}
+              theme={theme}
               onAction={onAction}
             />
           </div>
         ))}
 
-        {/* Images */}
         {toolImageItems.map((item) => (
           <div key={item.key} className="mcp-inline-content">
             <img src={item.src} alt="Tool result" className="tool-result-image" />

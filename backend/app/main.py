@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routes import sessions, chat, extensions, mcp_proxy
+from app.routes import sessions, chat, extensions, mcp_proxy, refine
 from app.services.mcp_manager import mcp_manager
 
 
@@ -29,6 +29,7 @@ app.include_router(sessions.router)
 app.include_router(chat.router)
 app.include_router(extensions.router)
 app.include_router(mcp_proxy.router)
+app.include_router(refine.router)
 
 
 @app.get("/api/health")

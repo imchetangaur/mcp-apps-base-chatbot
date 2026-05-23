@@ -2,11 +2,13 @@ import { useEffect, useRef, useMemo } from 'react';
 import { Message, ToolResponseContent } from '../types/message';
 import { UserMessage } from './UserMessage';
 import { AssistantMessage } from './AssistantMessage';
+import type { McpUiTheme } from './McpAppRenderer';
 
 interface Props {
   messages: Message[];
   onAction?: (text: string) => void;
   isThinking?: boolean;
+  theme?: McpUiTheme;
 }
 
 /** Check if a user message contains only toolResponse blocks (no real user text) */
@@ -74,7 +76,7 @@ function buildSuppressedResources(
   return suppressed;
 }
 
-export function MessageList({ messages, onAction, isThinking }: Props) {
+export function MessageList({ messages, onAction, isThinking, theme }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -135,6 +137,7 @@ export function MessageList({ messages, onAction, isThinking }: Props) {
             onAction={onAction}
             showAvatar={showAvatar}
             suppressedResources={suppressedResources}
+            theme={theme}
           />
         );
       })}

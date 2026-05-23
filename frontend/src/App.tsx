@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useSessionManager } from './hooks/useSessionManager';
 import { SessionSidebar } from './components/SessionSidebar';
 import { ChatView } from './components/ChatView';
+import type { McpUiTheme } from './components/McpAppRenderer';
 
 export default function App() {
   const {
@@ -14,6 +15,25 @@ export default function App() {
   } = useSessionManager();
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [theme, setTheme] = useState<McpUiTheme>(() => {
+    const saved = localStorage.getItem('theme');
+    return (saved === 'light' || saved === 'dark') ? saved : 'dark';
+  });
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    document.documentElement.classList.add('theme-switching');
+    setTheme((t) => (t === 'dark' ? 'light' : 'dark'));
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.documentElement.classList.remove('theme-switching');
+      });
+    });
+  }, []);
 
   const handleSelectSession = useCallback(
     (id: string) => {
@@ -55,6 +75,8 @@ export default function App() {
             onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
             sidebarOpen={sidebarOpen}
             onSessionRenamed={refresh}
+            theme={theme}
+            onToggleTheme={toggleTheme}
           />
         ) : (
           <div className="welcome-screen">

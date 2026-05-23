@@ -26,13 +26,27 @@ def _cleanup_store():
         _guest_html_store.pop(k, None)
 
 
+@router.get("/mcp-apps-sandbox", response_class=HTMLResponse)
+async def mcp_apps_sandbox():
+    """MCP Apps sandbox proxy — speaks JSON-RPC protocol for @mcp-ui/client AppRenderer."""
+    return HTMLResponse(content=MCP_APPS_SANDBOX_HTML, headers={
+        "Content-Security-Policy": (
+            "default-src 'none'; "
+            "script-src 'unsafe-inline'; "
+            "style-src 'unsafe-inline'; "
+            "frame-src blob: data: http: https:; "
+            "img-src * data: blob:; "
+            "connect-src *; "
+            "font-src * data:; "
+            "media-src * data: blob:;"
+        ),
+        "Cache-Control": "no-cache",
+    })
+
+
 @router.get("/sandbox", response_class=HTMLResponse)
 async def mcp_app_proxy():
-    """
-    Returns the sandbox proxy HTML page.
-    This is loaded as the outer iframe — it creates a guest iframe
-    inside it and relays postMessage between host (React) and guest (MCP app).
-    """
+    """Legacy sandbox proxy (load-html protocol)."""
     return HTMLResponse(content=SANDBOX_PROXY_HTML, headers={
         "Content-Security-Policy": (
             "default-src 'none'; "
@@ -106,11 +120,7 @@ async def read_resource(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# The sandbox proxy HTML template
-# Following Goose's mcp_app_proxy.html pattern:
-# - Outer iframe receives HTML from host (React) via postMessage
-# - Stores HTML server-side, loads guest iframe from real URL
-# - Relays messages bidirectionally between host and guest
+# The sandbox proxy HTML template (legacy — load-html protocol)
 SANDBOX_PROXY_HTML = """<!DOCTYPE html>
 <html>
 <head>
@@ -131,31 +141,26 @@ SANDBOX_PROXY_HTML = """<!DOCTYPE html>
   var guestIframe = null;
   var baseUrl = window.location.origin;
 
-  // Listen for messages from Host (React app)
   window.addEventListener('message', function(event) {
     var data = event.data;
     if (!data || typeof data !== 'object') return;
 
-    // Host sends 'load-html' to load content into sandbox
     if (data.type === 'load-html') {
       loadGuestHtml(data.html, data.css);
       return;
     }
 
-    // Forward other messages from Host to Guest
     if (guestIframe && guestIframe.contentWindow) {
       guestIframe.contentWindow.postMessage(data, '*');
     }
   });
 
   async function loadGuestHtml(html, css) {
-    // Remove existing guest iframe
     if (guestIframe) {
       guestIframe.remove();
       guestIframe = null;
     }
 
-    // Wrap HTML with full document structure if needed
     var fullHtml = html;
     if (!html.toLowerCase().includes('<html')) {
       fullHtml = '<!DOCTYPE html><html><head>' +
@@ -166,13 +171,11 @@ SANDBOX_PROXY_HTML = """<!DOCTYPE html>
         '</head><body>' + html + '</body></html>';
     }
 
-    // Inject resize observer script to communicate height to parent
     var resizeScript = '<script>' +
       'new ResizeObserver(function(entries) {' +
         'var h = document.documentElement.scrollHeight;' +
         'window.parent.postMessage({type:"resize",height:h}, "*");' +
       '}).observe(document.documentElement);' +
-      // Relay messages from guest content to host
       'window.addEventListener("message", function(e) {' +
         'if (e.source !== window) window.parent.postMessage(e.data, "*");' +
       '});' +
@@ -181,7 +184,6 @@ SANDBOX_PROXY_HTML = """<!DOCTYPE html>
     fullHtml = fullHtml.replace('</body>', resizeScript + '</body>');
 
     try {
-      // Store HTML server-side and get a nonce URL (Goose pattern)
       var resp = await fetch(baseUrl + '/api/mcp-proxy/guest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -195,15 +197,12 @@ SANDBOX_PROXY_HTML = """<!DOCTYPE html>
       guestIframe.src = baseUrl + '/api/mcp-proxy/guest?nonce=' + result.nonce;
       document.body.appendChild(guestIframe);
 
-      // Listen for messages from guest iframe
       window.addEventListener('message', function guestListener(e) {
         if (guestIframe && e.source === guestIframe.contentWindow) {
-          // Forward guest messages to host (React)
           window.parent.postMessage(e.data, '*');
         }
       });
     } catch (err) {
-      // Fallback: use srcdoc if server storage fails
       guestIframe = document.createElement('iframe');
       guestIframe.setAttribute('sandbox',
         'allow-scripts allow-same-origin allow-forms allow-popups');
@@ -212,8 +211,215 @@ SANDBOX_PROXY_HTML = """<!DOCTYPE html>
     }
   }
 
-  // Notify host that sandbox is ready
   window.parent.postMessage({ type: 'sandbox-ready' }, '*');
+})();
+</script>
+</body>
+</html>
+"""
+
+
+# MCP Apps sandbox proxy — speaks JSON-RPC protocol for @mcp-ui/client AppRenderer
+# Handles theme switching via ui/notifications/host-context-changed
+MCP_APPS_SANDBOX_HTML = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  iframe { width: 100%; height: 100%; border: none; position: absolute; top: 0; left: 0; }
+</style>
+</head>
+<body>
+<script>
+(function() {
+  var guestIframe = null;
+
+  var DARK_THEME = {
+    '--bg-primary':'#151515','--text-primary':'#ffffff',
+    '--bg-secondary':'#1f1f1f','--text-secondary':'#c7c7c7',
+    '--bg-surface':'#292929','--text-muted':'#707070',
+    '--accent':'#92c5f9','--accent-hover':'#b9dafc',
+    '--border':'#383838','--border-subtle':'#2a2a2a',
+    '--success':'#87bb62','--error':'#f0561d',
+    '--radius':'8px','--radius-lg':'12px'
+  };
+
+  var LIGHT_THEME = {
+    '--bg-primary':'#ffffff','--text-primary':'#1a1a1a',
+    '--bg-secondary':'#f5f5f5','--text-secondary':'#4a4a4a',
+    '--bg-surface':'#e8e8e8','--text-muted':'#8a8a8a',
+    '--accent':'#2563eb','--accent-hover':'#1d4ed8',
+    '--border':'#d4d4d4','--border-subtle':'#e5e5e5',
+    '--success':'#16a34a','--error':'#dc2626',
+    '--radius':'8px','--radius-lg':'12px'
+  };
+
+  var currentTheme = 'dark';
+
+  function buildThemeCSS(vars) {
+    var css = ':root{';
+    for (var k in vars) css += k + ':' + vars[k] + ';';
+    css += '}body{background:var(--bg-primary);color:var(--text-primary);' +
+      'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;' +
+      'margin:0;padding:16px;}';
+    return css;
+  }
+
+  function getThemeVars(theme) {
+    return theme === 'light' ? LIGHT_THEME : DARK_THEME;
+  }
+
+  // Map MCP Apps standard variables to our custom variables
+  function mapHostStyles(hostVars) {
+    var mapped = {};
+    var mapping = {
+      '--color-background-primary': '--bg-primary',
+      '--color-background-secondary': '--bg-secondary',
+      '--color-background-tertiary': '--bg-surface',
+      '--color-text-primary': '--text-primary',
+      '--color-text-secondary': '--text-secondary',
+      '--color-text-tertiary': '--text-muted',
+      '--color-border-primary': '--border',
+      '--color-border-secondary': '--border-subtle'
+    };
+    for (var stdKey in hostVars) {
+      if (mapping[stdKey]) {
+        mapped[mapping[stdKey]] = hostVars[stdKey];
+      }
+      mapped[stdKey] = hostVars[stdKey];
+    }
+    return mapped;
+  }
+
+  // Apply theme change to the guest iframe
+  function applyThemeToGuest(theme, hostStyles) {
+    if (!guestIframe || !guestIframe.contentWindow) return;
+    currentTheme = theme || currentTheme;
+    var vars = getThemeVars(currentTheme);
+    if (hostStyles && hostStyles.variables) {
+      var mapped = mapHostStyles(hostStyles.variables);
+      for (var k in mapped) vars[k] = mapped[k];
+    }
+    // Send theme update to guest iframe
+    guestIframe.contentWindow.postMessage({
+      type: '__mcp_theme_update',
+      theme: currentTheme,
+      variables: vars
+    }, '*');
+  }
+
+  window.addEventListener('message', function(event) {
+    var data = event.data;
+    if (!data || typeof data !== 'object') return;
+
+    if (data.jsonrpc === '2.0' && data.method === 'ui/notifications/sandbox-resource-ready') {
+      loadGuestHtml(data.params.html, data.params.sandbox);
+      return;
+    }
+
+    // Handle theme changes from host
+    if (data.jsonrpc === '2.0' && data.method === 'ui/notifications/host-context-changed') {
+      applyThemeToGuest(data.params.theme, data.params.styles);
+      // Also forward to guest for apps using the MCP Apps SDK directly
+      if (guestIframe && guestIframe.contentWindow) {
+        guestIframe.contentWindow.postMessage(data, '*');
+      }
+      return;
+    }
+
+    if (data.jsonrpc === '2.0' && guestIframe && guestIframe.contentWindow) {
+      guestIframe.contentWindow.postMessage(data, '*');
+    }
+  });
+
+  function loadGuestHtml(html, sandboxAttr) {
+    if (guestIframe) {
+      guestIframe.remove();
+      guestIframe = null;
+    }
+
+    var themeCSS = buildThemeCSS(getThemeVars(currentTheme));
+
+    var fullHtml = html;
+    if (!html.toLowerCase().includes('<html')) {
+      fullHtml = '<!DOCTYPE html><html><head>' +
+        '<meta charset="utf-8">' +
+        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+        '<style id="__mcp_theme">' + themeCSS + '</style>' +
+        '</head><body>' + html + '</body></html>';
+    } else if (!html.includes('id="__mcp_theme"')) {
+      fullHtml = fullHtml.replace('<head>', '<head><style id="__mcp_theme">' + themeCSS + '</style>');
+    }
+
+    var injectedScript = '<script>' +
+      // mcpAction helper for interactivity
+      'function mcpAction(text){' +
+        'window.parent.postMessage({' +
+          'jsonrpc:"2.0",id:"action-"+Date.now()+"-"+Math.random(),' +
+          'method:"ui/message",' +
+          'params:{content:[{type:"text",text:text}]}' +
+        '},"*");' +
+      '}' +
+      // Listen for theme updates from sandbox proxy
+      'window.addEventListener("message",function(e){' +
+        'var d=e.data;' +
+        'if(d&&d.type==="__mcp_theme_update"&&d.variables){' +
+          'var root=document.documentElement;' +
+          // Suppress transitions during theme switch
+          'var s=document.getElementById("__mcp_no_transition");' +
+          'if(!s){s=document.createElement("style");s.id="__mcp_no_transition";document.head.appendChild(s);}' +
+          's.textContent="*,*::before,*::after{transition:none!important}";' +
+          'for(var k in d.variables)root.style.setProperty(k,d.variables[k]);' +
+          'root.setAttribute("data-theme",d.theme||"dark");' +
+          'document.documentElement.style.colorScheme=d.theme||"dark";' +
+          // Re-enable transitions after repaint
+          'requestAnimationFrame(function(){requestAnimationFrame(function(){s.textContent="";});});' +
+        '}' +
+        // Relay other messages to sandbox proxy -> host
+        'if(e.source!==window)window.parent.postMessage(d,"*");' +
+      '});' +
+      // ResizeObserver
+      'new ResizeObserver(function(){' +
+        'var h=document.documentElement.scrollHeight;' +
+        'window.parent.postMessage({' +
+          'jsonrpc:"2.0",' +
+          'method:"ui/notifications/size-changed",' +
+          'params:{height:h}' +
+        '},"*");' +
+      '}).observe(document.documentElement);' +
+      // Initialized notification
+      'setTimeout(function(){' +
+        'window.parent.postMessage({' +
+          'jsonrpc:"2.0",' +
+          'method:"ui/notifications/initialized",' +
+          'params:{}' +
+        '},"*");' +
+      '},50);' +
+      '<\\/script>';
+
+    fullHtml = fullHtml.replace('</body>', injectedScript + '</body>');
+
+    guestIframe = document.createElement('iframe');
+    guestIframe.setAttribute('sandbox',
+      sandboxAttr || 'allow-scripts allow-same-origin allow-forms allow-popups allow-modals');
+    guestIframe.srcdoc = fullHtml;
+    document.body.appendChild(guestIframe);
+
+    window.addEventListener('message', function(e) {
+      if (guestIframe && e.source === guestIframe.contentWindow) {
+        window.parent.postMessage(e.data, '*');
+      }
+    });
+  }
+
+  window.parent.postMessage({
+    jsonrpc: '2.0',
+    method: 'ui/notifications/sandbox-proxy-ready',
+    params: {}
+  }, '*');
 })();
 </script>
 </body>

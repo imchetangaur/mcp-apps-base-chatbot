@@ -6,16 +6,19 @@ import { ExtensionManager } from './ExtensionManager';
 import { ExtensionConfig } from '../types/extension';
 import * as extensionsApi from '../api/extensions';
 import { renameSession } from '../api/sessions';
-import { Settings, PanelLeftOpen } from 'lucide-react';
+import { Settings, PanelLeftOpen, Sun, Moon } from 'lucide-react';
+import type { McpUiTheme } from './McpAppRenderer';
 
 interface Props {
   sessionId: string;
   onToggleSidebar: () => void;
   sidebarOpen: boolean;
   onSessionRenamed?: () => void;
+  theme: McpUiTheme;
+  onToggleTheme: () => void;
 }
 
-export function ChatView({ sessionId, onToggleSidebar, sidebarOpen, onSessionRenamed }: Props) {
+export function ChatView({ sessionId, onToggleSidebar, sidebarOpen, onSessionRenamed, theme, onToggleTheme }: Props) {
   const { messages, chatState, error, submit, cancel, loadSession } = useChatStream(sessionId);
   const [extensions, setExtensions] = useState<ExtensionConfig[]>([]);
   const [showExtensions, setShowExtensions] = useState(false);
@@ -90,16 +93,25 @@ export function ChatView({ sessionId, onToggleSidebar, sidebarOpen, onSessionRen
             </button>
           )}
         </div>
-        <button
-          className="btn-icon"
-          onClick={() => setShowExtensions(!showExtensions)}
-          title="MCP Servers"
-        >
-          <Settings size={18} />
-          {extensions.length > 0 && (
-            <span className="extension-badge">{extensions.length}</span>
-          )}
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+          <button
+            className="btn-icon"
+            onClick={onToggleTheme}
+            title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+          >
+            {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
+          <button
+            className="btn-icon"
+            onClick={() => setShowExtensions(!showExtensions)}
+            title="MCP Servers"
+          >
+            <Settings size={18} />
+            {extensions.length > 0 && (
+              <span className="extension-badge">{extensions.length}</span>
+            )}
+          </button>
+        </div>
       </div>
       <div className="chat-body">
         <div className="chat-messages-area">
@@ -107,6 +119,7 @@ export function ChatView({ sessionId, onToggleSidebar, sidebarOpen, onSessionRen
             messages={messages}
             onAction={handleMcpAction}
             isThinking={chatState === 'streaming' || chatState === 'loading'}
+            theme={theme}
           />
           {error && <div className="chat-error">{error}</div>}
         </div>
@@ -117,6 +130,7 @@ export function ChatView({ sessionId, onToggleSidebar, sidebarOpen, onSessionRen
               extensions={extensions}
               onAdd={handleAddExtension}
               onRemove={handleRemoveExtension}
+              onSampleQuery={handleSubmit}
             />
           </div>
         )}
