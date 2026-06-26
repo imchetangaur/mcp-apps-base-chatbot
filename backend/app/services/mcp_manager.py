@@ -135,14 +135,19 @@ class MCPManager:
         result = await session.list_tools()
         tools = []
         for tool in result.tools:
-            # Prefix tool name with extension name to avoid collisions
             prefixed_name = f"{extension_name}__{tool.name}"
+            ui_resource_uri = None
+            if tool.meta and isinstance(tool.meta, dict):
+                ui = tool.meta.get("ui")
+                if isinstance(ui, dict):
+                    ui_resource_uri = ui.get("resourceUri")
             tools.append(
                 ToolInfo(
                     name=prefixed_name,
                     description=tool.description or "",
                     input_schema=tool.inputSchema if tool.inputSchema else {},
                     extension_name=extension_name,
+                    ui_resource_uri=ui_resource_uri,
                 )
             )
         return tools

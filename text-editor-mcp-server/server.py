@@ -17,9 +17,12 @@ import json
 import uuid
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent, EmbeddedResource, TextResourceContents
+from mcp.types import Tool, TextContent, EmbeddedResource, TextResourceContents, Resource
 
 app = Server("text-editor")
+
+MCP_APP_MIME = "text/html;profile=mcp-app"
+EDITOR_RESOURCE_URI = "ui://text-editor/editor-app"
 
 
 def _build_editor_html(text: str, title: str = "Text Editor") -> str:
@@ -369,6 +372,27 @@ def _build_editor_html(text: str, title: str = "Text Editor") -> str:
 </html>'''
 
 
+@app.list_resources()
+async def list_resources():
+    return [
+        Resource(
+            uri=EDITOR_RESOURCE_URI,
+            name="Text Editor UI",
+            mimeType=MCP_APP_MIME,
+            description="Interactive text editor with inline AI refinement support.",
+        ),
+    ]
+
+
+@app.read_resource()
+async def read_resource(uri):
+    uri_str = str(uri)
+    if uri_str == EDITOR_RESOURCE_URI:
+        html = _build_editor_html("", "Text Editor")
+        return [TextResourceContents(uri=uri, mimeType=MCP_APP_MIME, text=html)]
+    return [TextResourceContents(uri=uri, mimeType="text/plain", text="Unknown resource")]
+
+
 @app.list_tools()
 async def list_tools():
     return [
@@ -389,6 +413,7 @@ async def list_tools():
                 },
                 "required": [],
             },
+            _meta={"ui": {"resourceUri": EDITOR_RESOURCE_URI}},
         ),
     ]
 
@@ -408,7 +433,7 @@ async def call_tool(name: str, arguments: dict):
                 type="resource",
                 resource=TextResourceContents(
                     uri=editor_uri,
-                    mimeType="text/html",
+                    mimeType=MCP_APP_MIME,
                     text=html,
                 ),
             ),

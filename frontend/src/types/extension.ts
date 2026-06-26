@@ -21,4 +21,5 @@ export interface ToolInfo {
   description: string;
   input_schema: Record<string, unknown>;
   extension_name: string;
+  ui_resource_uri?: string;
 }

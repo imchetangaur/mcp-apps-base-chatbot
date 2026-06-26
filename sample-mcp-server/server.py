@@ -13,12 +13,13 @@ Connect via: stdio (cmd: python3, args: [path/to/server.py])
 import json
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent, EmbeddedResource, TextResourceContents
+from mcp.types import Tool, TextContent, EmbeddedResource, TextResourceContents, Resource
 
 
 app = Server("product-catalog")
 
 REMOTE_DOM_MIME = "application/vnd.mcp-ui.remote-dom"
+MCP_APP_MIME = "text/html;profile=mcp-app"
 
 # Sample product data
 PRODUCTS = {
@@ -251,6 +252,49 @@ def _build_chart_tree(data: dict, title: str) -> str:
     return json.dumps(tree)
 
 
+SEARCH_PRODUCTS_RESOURCE_URI = "ui://product-catalog/search-app"
+SHOW_CHART_RESOURCE_URI = "ui://product-catalog/chart-app"
+RENDER_HTML_RESOURCE_URI = "ui://product-catalog/html-app"
+
+
+@app.list_resources()
+async def list_resources():
+    return [
+        Resource(
+            uri=SEARCH_PRODUCTS_RESOURCE_URI,
+            name="Product Search UI",
+            mimeType=REMOTE_DOM_MIME,
+            description="Interactive product card grid rendered via Remote DOM.",
+        ),
+        Resource(
+            uri=SHOW_CHART_RESOURCE_URI,
+            name="Chart UI",
+            mimeType=REMOTE_DOM_MIME,
+            description="Bar chart visualization rendered via Remote DOM.",
+        ),
+        Resource(
+            uri=RENDER_HTML_RESOURCE_URI,
+            name="HTML Renderer",
+            mimeType=MCP_APP_MIME,
+            description="Custom HTML content rendered in a sandboxed iframe.",
+        ),
+    ]
+
+
+@app.read_resource()
+async def read_resource(uri):
+    uri_str = str(uri)
+    if uri_str == SEARCH_PRODUCTS_RESOURCE_URI:
+        tree_json = _build_product_tree(PRODUCTS["shoes"], "shoes")
+        return [TextResourceContents(uri=uri, mimeType=REMOTE_DOM_MIME, text=tree_json)]
+    elif uri_str == SHOW_CHART_RESOURCE_URI:
+        tree_json = _build_chart_tree(CHART_DATA["sales"], "Sales Data")
+        return [TextResourceContents(uri=uri, mimeType=REMOTE_DOM_MIME, text=tree_json)]
+    elif uri_str == RENDER_HTML_RESOURCE_URI:
+        return [TextResourceContents(uri=uri, mimeType=MCP_APP_MIME, text="<p>Ready for custom HTML content.</p>")]
+    return [TextResourceContents(uri=uri, mimeType="text/plain", text="Unknown resource")]
+
+
 @app.list_tools()
 async def list_tools():
     return [
@@ -271,6 +315,7 @@ async def list_tools():
                 },
                 "required": ["category"],
             },
+            _meta={"ui": {"resourceUri": SEARCH_PRODUCTS_RESOURCE_URI}},
         ),
         Tool(
             name="show_chart",
@@ -289,6 +334,7 @@ async def list_tools():
                 },
                 "required": ["dataset"],
             },
+            _meta={"ui": {"resourceUri": SHOW_CHART_RESOURCE_URI}},
         ),
         Tool(
             name="render_html",
@@ -307,6 +353,7 @@ async def list_tools():
                 },
                 "required": ["html"],
             },
+            _meta={"ui": {"resourceUri": RENDER_HTML_RESOURCE_URI}},
         ),
     ]
 

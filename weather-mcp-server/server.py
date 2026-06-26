@@ -16,7 +16,7 @@ import urllib.request
 import urllib.parse
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent, EmbeddedResource, TextResourceContents
+from mcp.types import Tool, TextContent, EmbeddedResource, TextResourceContents, Resource
 
 app = Server("weather-service")
 
@@ -517,6 +517,50 @@ def _build_search_results_tree(results: list, query: str) -> str:
     return json.dumps(tree)
 
 
+# ── Resource URIs for _meta.ui ───────────────────────────────────
+
+CURRENT_WEATHER_RESOURCE_URI = "ui://weather-service/current-weather-app"
+FORECAST_RESOURCE_URI = "ui://weather-service/forecast-app"
+SEARCH_RESOURCE_URI = "ui://weather-service/search-app"
+
+
+@app.list_resources()
+async def list_resources():
+    return [
+        Resource(
+            uri=CURRENT_WEATHER_RESOURCE_URI,
+            name="Current Weather UI",
+            mimeType=REMOTE_DOM_MIME,
+            description="Weather card with temperature, conditions, wind, and humidity.",
+        ),
+        Resource(
+            uri=FORECAST_RESOURCE_URI,
+            name="Forecast UI",
+            mimeType=REMOTE_DOM_MIME,
+            description="Multi-day forecast grid with daily highs/lows and hourly previews.",
+        ),
+        Resource(
+            uri=SEARCH_RESOURCE_URI,
+            name="City Search UI",
+            mimeType=REMOTE_DOM_MIME,
+            description="Clickable city search results.",
+        ),
+    ]
+
+
+@app.read_resource()
+async def read_resource(uri):
+    uri_str = str(uri)
+    placeholder = json.dumps({
+        "type": "div",
+        "props": {"style": {"padding": "16px", "color": "var(--text-muted)"}},
+        "children": ["Waiting for tool result..."],
+    })
+    if uri_str in (CURRENT_WEATHER_RESOURCE_URI, FORECAST_RESOURCE_URI, SEARCH_RESOURCE_URI):
+        return [TextResourceContents(uri=uri, mimeType=REMOTE_DOM_MIME, text=placeholder)]
+    return [TextResourceContents(uri=uri, mimeType="text/plain", text="Unknown resource")]
+
+
 # ── MCP Tools ────────────────────────────────────────────────────
 
 @app.list_tools()
@@ -535,6 +579,7 @@ async def list_tools():
                 },
                 "required": ["city"],
             },
+            _meta={"ui": {"resourceUri": CURRENT_WEATHER_RESOURCE_URI}},
         ),
         Tool(
             name="get_forecast",
@@ -553,6 +598,7 @@ async def list_tools():
                 },
                 "required": ["city"],
             },
+            _meta={"ui": {"resourceUri": FORECAST_RESOURCE_URI}},
         ),
         Tool(
             name="search_cities",
@@ -567,6 +613,7 @@ async def list_tools():
                 },
                 "required": ["query"],
             },
+            _meta={"ui": {"resourceUri": SEARCH_RESOURCE_URI}},
         ),
     ]
 

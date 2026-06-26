@@ -32,3 +32,4 @@ class ToolInfo(BaseModel):
     description: str
     input_schema: dict
     extension_name: str
+    ui_resource_uri: Optional[str] = None
